@@ -11,7 +11,7 @@ class GeoDBClient:
 		self._min_population = config.MIN_CITY_POPULATION
 		
 	def pick_place(self):
-		country = self.pick_country()  # pick country first to balance small vs. large countries
+		country = self.pick_country()  # pick country first to give small countries a chance
 		country_id = country["code"]
 		city = self.pick_city(country_id)
 		return city

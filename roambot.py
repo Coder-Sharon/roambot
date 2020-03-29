@@ -1,6 +1,7 @@
-from random import uniform
+import logging
+from tempfile import TemporaryFile 
 
-import requests
+import twitter
 
 import common.config as config
 from common.geodb import GeoDBClient
@@ -14,35 +15,54 @@ class Roambot:
 		self._geocoding = GeocodingClient(config)
 		self._streetview = StreetviewClient(config)
 		
-	def tweet(self):
-		image = None
+		self._twitter =  twitter.Api(
+			config.TWITTER_CONSUMER_KEY,
+			config.TWITTER_CONSUMER_SECRET,
+			config.TWITTER_ACCESS_TOKEN_KEY,
+			config.TWITTER_ACCESS_TOKEN_SECRET,
+		)
+		
+	def tweet(self, attempts = 10):
 		attempt = 0
 
-		while not image and attempt < 10:
+		while attempt < attempts:  # try to tweet before giving up
+			logging.info(f"tweet attempt: {attempt + 1}")
 			place = self._geodb.pick_place()
-			coordinates = self.pick_coordinates(place)
-			image = coordinates
-			#image = self._streetview.pick_image(coordinates)
+			address = self.format_address(place)
+			bbox = self.get_bounding_box(address)
+			image = self._streetview.pick_image(bbox)
+
+			if image:
+				with TemporaryFile() as imagef:
+					imagef.write(image)
+					self._twitter.PostUpdate(status=address, media=imagef)
+					logging.info(f"yay: tweeted {address}")
+				return
+
 			attempt = attempt + 1
+
+		logging.warning("whoops: no tweet this time")
+
+	def get_bounding_box(self, address):
+		geocode = self._geocoding.geocode(address)
+
+		try:
+			bbox = geocode["boundingbox"]
+			bbox = [float(v) for v in bbox]
+		except KeyError:
+			bbox = []
 			
-		print(coordinates)
-		print(attempt)
-			
+		return bbox
 		
-	def pick_coordinates(self, place):
-			geocode = self._geocoding.geocode(place.get("city"), place.get("country"))
-	
-			try:
-				bbox = geocode["boundingbox"]
-				bboxf = [float(v) for v in bbox]
-				south, north, west, east = bboxf
-				latitude = uniform(south, north)
-				longitude = uniform(west, east)
-				coordinates = f"{latitude},{longitude}"
-			except KeyError:
-				coordinates = ""
-				
-			return coordinates	
+	def format_address(self, place):
+		city = place.get("city", "")
+		region = place.get("region", "")
+		country = place.get("country", "")
+		parts = [city, region, country]
+		parts = list(dict.fromkeys(parts))  # remove duplication
+		address = ", ".join(parts)
+		
+		return address
 
 
 if __name__ == "__main__":
